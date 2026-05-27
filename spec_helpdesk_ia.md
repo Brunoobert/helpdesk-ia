@@ -38,7 +38,7 @@ Chamados repetitivos consomem tempo do time de infra. Muitas resoluções já ex
    ┌────┴────┐
    ▼         ▼
 [Qdrant]  [LLM API]
-Vector DB  OpenAI / Bedrock
+Vector DB  Gemini / Bedrock
         │
         ▼
 [LangFuse]
@@ -69,7 +69,7 @@ Vector DB  OpenAI / Bedrock
 | Orquestração | n8n | Airflow | Já tenho experiência, mais visual |
 | Observabilidade | LangFuse | Phoenix | Open source, self-hosted disponível |
 | Cloud | AWS | GCP | Maior demanda no mercado BR |
-| LLM | OpenAI gpt-4o-mini | Claude / Gemini | Custo-benefício, trocar por Bedrock no deploy |
+| LLM | Gemini | Claude / OpenAI gpt-4o-mini| Custo-benefício, trocar por Bedrock no deploy |
 
 ---
 
@@ -284,9 +284,9 @@ class TicketLog(BaseModel):
 
 ```env
 # LLM
-LLM_PROVIDER=openai                  # openai | bedrock
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+LLM_PROVIDER=gemini                  # gemini | bedrock
+GEMINI_API_KEY=AIza...
+LLM_MODEL=gemini-2.0-flash
 
 # Qdrant
 QDRANT_HOST=localhost
