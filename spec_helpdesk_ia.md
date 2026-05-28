@@ -2,7 +2,7 @@
 
 > **Versão:** 1.0  
 > **Status:** Em desenvolvimento  
-> **Última atualização:** ___________
+> **Última atualização:** 27/05/2026
 
 ---
 
@@ -38,7 +38,7 @@ Chamados repetitivos consomem tempo do time de infra. Muitas resoluções já ex
    ┌────┴────┐
    ▼         ▼
 [Qdrant]  [LLM API]
-Vector DB  OpenAI / Bedrock
+Vector DB  Gemini / Groq / Ollama
         │
         ▼
 [LangFuse]
@@ -69,7 +69,7 @@ Vector DB  OpenAI / Bedrock
 | Orquestração | n8n | Airflow | Já tenho experiência, mais visual |
 | Observabilidade | LangFuse | Phoenix | Open source, self-hosted disponível |
 | Cloud | AWS | GCP | Maior demanda no mercado BR |
-| LLM | OpenAI gpt-4o-mini | Claude / Gemini | Custo-benefício, trocar por Bedrock no deploy |
+| LLM | Configurável via `LLM_PROVIDER` | Provider único hardcoded | Gemini em produção; Groq em dev; Ollama offline/local |
 
 ---
 
@@ -282,11 +282,33 @@ class TicketLog(BaseModel):
 
 ## 8. Variáveis de Ambiente
 
+### Provider de LLM (`LLM_PROVIDER`)
+
+O agente usa **LangChain** com provider selecionado por variável de ambiente. Não é necessário alterar código para trocar de modelo.
+
+| Provider | Uso recomendado | Modelo padrão | API key |
+|---|---|---|---|
+| `gemini` | Produção | `gemini-2.5-flash` (`GEMINI_MODEL`) | `GEMINI_API_KEY` |
+| `groq` | Desenvolvimento | `llama-3.1-8b-instant` (`GROQ_MODEL`) | `GROQ_API_KEY` |
+| `ollama` | Local / offline | `llama3.2` (`OLLAMA_MODEL`) | Não exige — Ollama deve estar instalado e rodando |
+
+**Ollama:** requer [Ollama](https://ollama.com/) instalado separadamente (`ollama serve`). Performance depende do hardware. Modelos sugeridos: `llama3.2` em CPU; `llama3.1:8b` com GPU.
+
 ```env
 # LLM
-LLM_PROVIDER=openai                  # openai | bedrock
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+LLM_PROVIDER=groq                    # gemini | groq | ollama
+
+# Gemini (produção)
+GEMINI_API_KEY=AIza...
+GEMINI_MODEL=gemini-2.5-flash
+
+# Groq (desenvolvimento)
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.1-8b-instant
+
+# Ollama (local)
+OLLAMA_MODEL=llama3.2
+OLLAMA_BASE_URL=http://localhost:11434
 
 # Qdrant
 QDRANT_HOST=localhost
