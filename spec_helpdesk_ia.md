@@ -1,8 +1,8 @@
 # 📋 Spec — Help Desk IA com RAG, n8n e AWS
 
-> **Versão:** 1.0  
+> **Versão:** 1.1  
 > **Status:** Em desenvolvimento  
-> **Última atualização:** 27/05/2026
+> **Última atualização:** 28/05/2026
 
 ---
 
@@ -70,6 +70,58 @@ Vector DB  Gemini / Groq / Ollama
 | Observabilidade | LangFuse | Phoenix | Open source, self-hosted disponível |
 | Cloud | AWS | GCP | Maior demanda no mercado BR |
 | LLM | Configurável via `LLM_PROVIDER` | Provider único hardcoded | Gemini em produção; Groq em dev; Ollama offline/local |
+| Taxonomia de categorias | Hardcoded em `prompts.py` (v1) → `config/categorias.yml` (Etapa 2) | Categorias fixas no código | Permite adaptar o agente por empresa/contexto sem deploy; alinha classificação e RAG na mesma taxonomia |
+
+### Decisão técnica — Taxonomia de categorias configurável via YAML (Etapa 2)
+
+**Status:** Planejado — não implementar na Etapa 1.
+
+**Decisão:** As categorias de classificação hoje estão hardcoded no prompt (`app/prompts.py`). Na **Etapa 2**, junto com a implementação do RAG, migrar para `config/categorias.yml` carregado dinamicamente.
+
+**Motivação:** Permite alterar a taxonomia sem mudança de código — útil para adaptar o agente a diferentes empresas ou contextos. O RAG da Etapa 2 usará as mesmas categorias para buscar soluções na base de conhecimento; por isso a migração deve ocorrer junto com o RAG.
+
+**Contrato do arquivo `config/categorias.yml`:** cada categoria deve expor:
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `nome` | string | Nome da categoria (ex.: `Rede`, `Acesso`) |
+| `exemplos` | lista de strings | Exemplos de chamados típicos da categoria |
+| `auto_resolve_elegivel` | bool | Se a categoria pode ser candidata a resolução automática (sujeito às regras de urgência e confiança) |
+
+**Implementação prevista (Etapa 2):**
+
+- `app/prompts.py` carrega `config/categorias.yml` via **PyYAML** e injeta as categorias no system prompt dinamicamente.
+- O schema `ClassificationResult` e o RAG passam a derivar os valores válidos de `categoria` desse arquivo (em vez de `Literal` fixo no código).
+- Dependência: `pyyaml` (adicionar em `requirements.txt` na Etapa 2).
+
+**Exemplo ilustrativo (não implementar agora):**
+
+```yaml
+categorias:
+  - nome: Rede
+    exemplos:
+      - "VPN não conecta"
+      - "Sem acesso à internet no escritório"
+    auto_resolve_elegivel: false
+  - nome: Acesso
+    exemplos:
+      - "Reset de senha do AD"
+      - "Liberação de permissão no sistema X"
+    auto_resolve_elegivel: true
+```
+
+---
+
+## Etapa 2 — Backlog
+
+Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não implementar na Etapa 1.**
+
+| ID | Tarefa | Prioridade | Notas |
+|---|---|---|---|
+| E2-01 | Implementar RAG com Qdrant (`POST /ingest`, busca top-3 no classify) | Alta | Ver fluxo principal §5 |
+| E2-02 | **Taxonomia configurável via `config/categorias.yml`** | Alta | Decisão técnica acima; PyYAML em `prompts.py`; alinhar RAG e `ClassificationResult` |
+| E2-03 | Persistência `TicketLog` em PostgreSQL | Média | Schema já definido em §4 |
+| E2-04 | Traces LangFuse por requisição | Média | Métricas em §6 |
 
 ---
 
@@ -345,4 +397,5 @@ MAX_UPLOAD_SIZE_MB=10
 
 | Data | Versão | Mudança |
 |---|---|---|
-| ___ | 1.0 | Spec inicial criada |
+| 27/05/2026 | 1.0 | Spec inicial criada |
+| 28/05/2026 | 1.1 | Decisão técnica: taxonomia de categorias via YAML (Etapa 2); backlog Etapa 2 (E2-01 a E2-04) |
