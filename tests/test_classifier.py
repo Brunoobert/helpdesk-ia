@@ -55,7 +55,7 @@ def mock_llm_json(category, urgency, suggested_action, auto_resolve, confidence)
 
 
 DEFAULT_MOCK = dict(
-    category="Acesso",
+    category="INFRAESTRUTURA/AD/RESET_SENHA",
     urgency="Média",
     suggested_action="Resetar senha pelo portal de autoatendimento.",
     auto_resolve=False,
@@ -94,7 +94,8 @@ class TestAPIContract:
             "Impressora do setor financeiro não imprime desde a troca do toner."
         ))
         assert response.status_code == 200
-        categorias_validas = {"Rede", "Acesso", "Hardware", "Software", "Outro"}
+        from app.schemas import VALID_CATEGORIES
+        categorias_validas = VALID_CATEGORIES
         assert response.json()["category"] in categorias_validas
 
     def test_classify_retorna_urgencia_valida(self):
@@ -122,13 +123,6 @@ class TestAPIContract:
         assert response.status_code == 200
         assert response.json()["processing_ms"] >= 0
 
-    def test_classify_rag_context_false_na_etapa1(self):
-        """Na Etapa 1, RAG não está implementado — deve ser sempre false."""
-        response = client.post("/classify", json=make_ticket(
-            "Usuário sem acesso à pasta compartilhada do servidor."
-        ))
-        assert response.status_code == 200
-        assert response.json()["rag_context_used"] is False
 
     def test_classify_ticket_id_preservado_na_resposta(self):
         """O ticket_id do request deve ser refletido na response."""
@@ -180,7 +174,7 @@ class TestRegraDeNegocio:
         urgência Alta deve forçar auto_resolve=false.
         """
         mock_invoke.return_value = mock_llm_json(
-            category="Rede",
+            category="INFRAESTRUTURA/VPN/ERRO_CONEXAO",
             urgency="Alta",
             suggested_action="Verificar infraestrutura.",
             auto_resolve=True,   # LLM quer resolver automaticamente
@@ -203,7 +197,7 @@ class TestRegraDeNegocio:
         forçar auto_resolve=false mesmo que o LLM decida diferente.
         """
         mock_invoke.return_value = mock_llm_json(
-            category="Acesso",
+            category="INFRAESTRUTURA/AD/RESET_SENHA",
             urgency="Baixa",
             suggested_action="Resetar senha.",
             auto_resolve=True,
@@ -223,7 +217,7 @@ class TestRegraDeNegocio:
     def test_urgencia_alta_confidence_alta_ainda_bloqueia(self, mock_invoke):
         """Confidence alta não deve sobrescrever a regra de urgência Alta."""
         mock_invoke.return_value = mock_llm_json(
-            category="Hardware",
+            category="HELPDESK/SO/CORRIGIR_ERRO_WINDOWS",
             urgency="Alta",
             suggested_action="Substituir servidor.",
             auto_resolve=True,
@@ -241,7 +235,7 @@ class TestRegraDeNegocio:
     def test_urgencia_media_confidence_alta_permite_auto_resolve(self, mock_invoke):
         """Urgência Média com confidence alta pode ter auto_resolve=true."""
         mock_invoke.return_value = mock_llm_json(
-            category="Acesso",
+            category="INFRAESTRUTURA/AD/RESET_SENHA",
             urgency="Média",
             suggested_action="Resetar senha e notificar usuário.",
             auto_resolve=True,
@@ -259,7 +253,7 @@ class TestRegraDeNegocio:
     def test_confidence_exatamente_no_threshold_permite(self, mock_invoke):
         """Confidence exatamente em 0.7 deve permitir auto_resolve."""
         mock_invoke.return_value = mock_llm_json(
-            category="Acesso",
+            category="INFRAESTRUTURA/AD/RESET_SENHA",
             urgency="Baixa",
             suggested_action="Resetar senha.",
             auto_resolve=True,
@@ -305,7 +299,7 @@ class TestCasosAmbiguos:
         ))
         assert response.status_code == 200
         data = response.json()
-        assert data["category"] in {"Rede", "Software"}
+        assert data["category"] in {"INFRAESTRUTURA/VPN/ERRO_CONEXAO", "HELPDESK/SO/CORRIGIR_ERRO_WINDOWS"}
         assert data["urgency"] in {"Alta", "Média"}
 
     @pytest.mark.integration
@@ -317,7 +311,7 @@ class TestCasosAmbiguos:
         ))
         assert response.status_code == 200
         data = response.json()
-        assert data["category"] == "Hardware"
+        assert data["category"] in {"HELPDESK/SO/CORRIGIR_ERRO_WINDOWS", "HELPDESK/SO/REINSTALAR_SISTEMA"}
         assert data["urgency"] in {"Alta", "Média"}
 
     @pytest.mark.integration
@@ -348,7 +342,7 @@ class TestCasosAmbiguos:
         ))
         assert response.status_code == 200
         data = response.json()
-        assert data["category"] == "Acesso"
+        assert data["category"] == "INFRAESTRUTURA/AD/RESET_SENHA"
         assert data["auto_resolve"] is True
         assert data["confidence"] >= 0.85
 

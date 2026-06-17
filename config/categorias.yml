@@ -1,0 +1,132 @@
+categorias:
+  - path: INFRAESTRUTURA/VPN/ERRO_CONEXAO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "VPN não conecta"
+      - "erro 800 na VPN"
+    documento_referencia: manual_vpn.md
+
+  - path: INFRAESTRUTURA/VPN/CONFIGURAR
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Preciso configurar a VPN no meu celular novo"
+      - "Solicito configuração de VPN no MacBook"
+    documento_referencia: manual_vpn.md
+
+  - path: INFRAESTRUTURA/VPN/REVOGAR_ACESSO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Revogar VPN do funcionário desligado"
+      - "Bloquear acesso VPN do usuário"
+    documento_referencia: manual_vpn.md
+
+  - path: INFRAESTRUTURA/AD/RESET_SENHA
+    auto_resolve_elegivel: true
+    exemplos:
+      - "Reset de senha do AD"
+      - "Esqueci minha senha da rede"
+    documento_referencia: reset_senha.md
+
+  - path: INFRAESTRUTURA/AD/DESBLOQUEAR_CONTA
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Minha conta bloqueou após muitas tentativas"
+    documento_referencia: reset_senha.md
+
+  - path: INFRAESTRUTURA/AD/CRIAR_USUARIO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Criar conta para o novo desenvolvedor"
+    documento_referencia: onboarding_usuario.md
+
+  - path: INFRAESTRUTURA/AD/REMOVER_USUARIO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Remover usuário desligado do AD"
+      - "Desativar conta do AD"
+    documento_referencia: onboarding_usuario.md
+
+  - path: INFRAESTRUTURA/BACKUP/SOLICITAR_RESTAURACAO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Preciso restaurar um arquivo deletado ontem"
+      - "Restauração de pasta do servidor de arquivos"
+    documento_referencia: politica_backup.md
+
+  - path: INFRAESTRUTURA/BACKUP/VERIFICAR_STATUS
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Verificar se o backup diário rodou"
+      - "Confirmar integridade do backup"
+    documento_referencia: politica_backup.md
+
+  - path: HELPDESK/SO/CORRIGIR_ERRO_WINDOWS
+    auto_resolve_elegivel: true
+    exemplos:
+      - "Tela azul no meu notebook"
+      - "Windows travando constantemente"
+
+  - path: HELPDESK/SO/REINSTALAR_SISTEMA
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Formatar meu PC por favor"
+
+  - path: HELPDESK/SO/ATUALIZAR_SO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Preciso atualizar o Windows para a versão mais recente"
+      - "Atualização do sistema operacional falhando"
+
+  - path: HELPDESK/IMPRESSORA/INSTALAR_DRIVER
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Como instalo a impressora do 5o andar?"
+    documento_referencia: troubleshooting_impressora.md
+
+  - path: HELPDESK/IMPRESSORA/FILA_TRAVADA
+    auto_resolve_elegivel: false
+    exemplos:
+      - "A impressora está apitando e não imprime"
+      - "Fila de impressão travada"
+    documento_referencia: troubleshooting_impressora.md
+
+  - path: HELPDESK/IMPRESSORA/IMPRESSORA_OFFLINE
+    auto_resolve_elegivel: true
+    exemplos:
+      - "Impressora offline no meu setor"
+      - "Computador diz que a impressora está offline"
+    documento_referencia: troubleshooting_impressora.md
+
+  - path: HELPDESK/OFFICE/INSTALAR_LICENCA
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Meu Office expirou"
+
+  - path: HELPDESK/OFFICE/ERRO_APLICATIVO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Word travando ao abrir arquivo"
+      - "Excel com erro de licença ou falha ao iniciar"
+
+  - path: ACESSO/ONBOARDING/PROVISIONAR_USUARIO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Novo funcionário começando semana que vem"
+    documento_referencia: onboarding_usuario.md
+
+  - path: ACESSO/ONBOARDING/CONFIGURAR_EQUIPAMENTO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Preparar notebook para a Maria"
+    documento_referencia: onboarding_usuario.md
+
+  - path: ACESSO/OFFBOARDING/REVOGAR_ACESSOS
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Desligamento do João, remover todos os acessos"
+
+  - path: ACESSO/OFFBOARDING/RECUPERAR_EQUIPAMENTO
+    auto_resolve_elegivel: false
+    exemplos:
+      - "Recolher notebook do funcionário desligado"
+      - "Solicitar devolução de equipamento de home office"

@@ -75,12 +75,17 @@ def _message_content_to_str(content: Any) -> str:
     return str(content)
 
 
-def _invoke_llm(text: str) -> str:
+def _invoke_llm(text: str, context: str = "") -> str:
     llm = _get_llm()
+    
+    human_text = f"Chamado do usuário:\n{text}"
+    if context:
+        human_text += f"\n\n--- CONTEXTO DA BASE DE CONHECIMENTO ---\n{context}"
+        
     response = llm.invoke(
         [
             SystemMessage(content=CLASSIFY_SYSTEM_PROMPT),
-            HumanMessage(content=text),
+            HumanMessage(content=human_text),
         ]
     )
     return _message_content_to_str(response.content).strip()
@@ -88,9 +93,30 @@ def _invoke_llm(text: str) -> str:
 
 def classify_ticket(ticket: TicketInput) -> ClassificationResult:
     start = time.time()
-
+    
+    rag_context = ""
+    rag_used = False
+    
+    # 1. Busca na Base de Conhecimento (RAG)
     try:
-        raw_text = _invoke_llm(ticket.text)
+        from app.rag import search_knowledge_base
+        results = search_knowledge_base(ticket.text, top_k=2)
+        
+        docs = []
+        for r in results:
+            # Filtra resultados pouco relevantes (ajuste fino para Gemini)
+            if r["score"] > 0.50:
+                docs.append(f"Fonte: {r['source']}\nConteúdo: {r['text']}")
+        
+        if docs:
+            rag_context = "\n\n".join(docs)
+            rag_used = True
+    except Exception as e:
+        print(f"Aviso: Erro ao buscar na base de conhecimento (RAG ignorado): {e}")
+
+    # 2. Envia para o LLM classificar
+    try:
+        raw_text = _invoke_llm(ticket.text, context=rag_context)
     except Exception as exc:
         raise LLMUnavailableError("LLM API indisponivel") from exc
 
@@ -110,6 +136,6 @@ def classify_ticket(ticket: TicketInput) -> ClassificationResult:
         suggested_action=raw["suggested_action"],
         auto_resolve=raw["auto_resolve"],
         confidence=raw["confidence"],
-        rag_context_used=False,
+        rag_context_used=rag_used,
         processing_ms=elapsed_ms,
     )

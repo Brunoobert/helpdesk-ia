@@ -21,3 +21,5 @@ Thumbs.db
 # Logs do Langfuse locais (se houver) ou banco local do Qdrant
 data/
 .qdrant/
+
+.vscode/

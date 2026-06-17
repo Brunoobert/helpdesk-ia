@@ -1,8 +1,8 @@
 # 📋 Spec — Help Desk IA com RAG, n8n e AWS
 
-> **Versão:** 1.1  
+> **Versão:** 1.3.2
 > **Status:** Em desenvolvimento  
-> **Última atualização:** 28/05/2026
+> **Última atualização:** 17/06/2026
 
 ---
 
@@ -56,8 +56,8 @@ Vector DB  Gemini / Groq / Ollama
 | FastAPI | API do agente | Docker / ECS |
 | Qdrant | Banco vetorial para RAG | Docker / ECS |
 | n8n | Orquestração de fluxos | Docker / ECS |
-| LangFuse | Observabilidade de LLM | Docker / Cloud |
-| PostgreSQL | Metadados e logs | Docker / RDS |
+| LangFuse | Observabilidade de LLM | Docker local (v1) |
+| PostgreSQL | Metadados e logs | Docker local / RDS |
 | S3 | Storage dos documentos | AWS |
 | GitHub Actions | CI/CD | GitHub |
 
@@ -67,47 +67,58 @@ Vector DB  Gemini / Groq / Ollama
 |---|---|---|---|
 | Vector DB | Qdrant | Pinecone | Self-hosted, sem custo por requisição |
 | Orquestração | n8n | Airflow | Já tenho experiência, mais visual |
-| Observabilidade | LangFuse | Phoenix | Open source, self-hosted disponível |
+| Observabilidade | LangFuse | Phoenix | Open source, self-hosted via Docker local |
+| Banco / ORM | PostgreSQL + SQLAlchemy | Psycopg2 puro | Persistência de logs estruturada de forma simples |
+| Parser PDF | pdfplumber | PyPDF2 | Extração mais robusta de texto |
 | Cloud | AWS | GCP | Maior demanda no mercado BR |
 | LLM | Configurável via `LLM_PROVIDER` | Provider único hardcoded | Gemini em produção; Groq em dev; Ollama offline/local |
-| Taxonomia de categorias | Hardcoded em `prompts.py` (v1) → `config/categorias.yml` (Etapa 2) | Categorias fixas no código | Permite adaptar o agente por empresa/contexto sem deploy; alinha classificação e RAG na mesma taxonomia |
+| Embeddings | Google `text-embedding-004` | sentence-transformers | Gratuito no free tier, sem dependência de GPU local. Configurável via `EMBEDDING_PROVIDER` |
+| Taxonomia de categorias | Hierárquica em `config/categorias.yml` | Categorias flat fixas no código | Categorias em paths estruturados (AREA/SUBAREA/ACAO). Permite alinhar classificação e RAG |
 
-### Decisão técnica — Taxonomia de categorias configurável via YAML (Etapa 2)
+### Decisão técnica — Taxonomia hierárquica e Embeddings (Etapa 2)
 
-**Status:** Planejado — não implementar na Etapa 1.
+**Status:** Planejado para Etapa 2.
 
-**Decisão:** As categorias de classificação hoje estão hardcoded no prompt (`app/prompts.py`). Na **Etapa 2**, junto com a implementação do RAG, migrar para `config/categorias.yml` carregado dinamicamente.
+**Decisões tomadas:**
+1. **Taxonomia Hierárquica:** Substituir categorias flat ("Rede", "Acesso", "Hardware"...) por paths hierárquicos no formato `AREA/SUBAREA/ACAO`, configurados via `config/categorias.yml`.
+2. **Embeddings Provider:** Separação das chamadas de LLM e embeddings. Uso padrão do Google `text-embedding-004` (via `langchain-google-genai`), com Ollama (`nomic-embed-text`) apenas como fallback offline.
+3. **RAG e Contexto:** Cada chunk no Qdrant recebe metadados com o path hierárquico. A busca vetorial é filtrada pelo path do chamado classificado, utilizando `RecursiveCharacterTextSplitter` (400 tokens / 60 overlap).
+4. **Base Sintética:** Documentos gerados por IA mantidos em `docs/knowledge_base/` simulando casos reais.
+5. **Critério de Auto-resolução (`auto_resolve_elegivel`):** Definido como `true` **SOMENTE** se:
+   - O usuário comum (sem privilégio admin) consegue seguir o passo a passo sozinho.
+   - Há baixo risco — errar não causa impacto grande.
+   - O agente orienta com instruções — não executa nada diretamente no sistema.
 
-**Motivação:** Permite alterar a taxonomia sem mudança de código — útil para adaptar o agente a diferentes empresas ou contextos. O RAG da Etapa 2 usará as mesmas categorias para buscar soluções na base de conhecimento; por isso a migração deve ocorrer junto com o RAG.
-
-**Contrato do arquivo `config/categorias.yml`:** cada categoria deve expor:
+**Contrato do arquivo `config/categorias.yml`:** cada entrada deve expor:
 
 | Campo | Tipo | Descrição |
 |---|---|---|
-| `nome` | string | Nome da categoria (ex.: `Rede`, `Acesso`) |
+| `path` | string | Caminho da categoria (ex.: `INFRAESTRUTURA/VPN/ERRO_CONEXAO`) |
 | `exemplos` | lista de strings | Exemplos de chamados típicos da categoria |
-| `auto_resolve_elegivel` | bool | Se a categoria pode ser candidata a resolução automática (sujeito às regras de urgência e confiança) |
+| `auto_resolve_elegivel` | bool | Se a categoria pode ser candidata a resolução automática |
+| `documento_referencia` | string | Arquivo .md da base de conhecimento correspondente |
 
 **Implementação prevista (Etapa 2):**
 
-- `app/prompts.py` carrega `config/categorias.yml` via **PyYAML** e injeta as categorias no system prompt dinamicamente.
-- O schema `ClassificationResult` e o RAG passam a derivar os valores válidos de `categoria` desse arquivo (em vez de `Literal` fixo no código).
-- Dependência: `pyyaml` (adicionar em `requirements.txt` na Etapa 2).
+- `app/prompts.py` carrega `config/categorias.yml` via **PyYAML**.
+- O schema `ClassificationResult` passa a usar `category: str` com um validator Pydantic (`field_validator`) validando contra os paths do YAML.
+- `app/rag.py` será responsável pelo Qdrant e chamadas de embeddings.
 
-**Exemplo ilustrativo (não implementar agora):**
+**Exemplo ilustrativo `config/categorias.yml`:**
 
 ```yaml
 categorias:
-  - nome: Rede
+  - path: INFRAESTRUTURA/VPN/ERRO_CONEXAO
     exemplos:
       - "VPN não conecta"
-      - "Sem acesso à internet no escritório"
-    auto_resolve_elegivel: false
-  - nome: Acesso
+      - "erro 800 na VPN"
+    auto_resolve_elegivel: false  # Usuário comum não entende o erro técnico
+    documento_referencia: manual_vpn.md
+  - path: INFRAESTRUTURA/AD/RESET_SENHA
     exemplos:
       - "Reset de senha do AD"
-      - "Liberação de permissão no sistema X"
-    auto_resolve_elegivel: true
+    auto_resolve_elegivel: true  # Self-service via portal, sem admin
+    documento_referencia: reset_senha.md
 ```
 
 ---
@@ -116,12 +127,34 @@ categorias:
 
 Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não implementar na Etapa 1.**
 
-| ID | Tarefa | Prioridade | Notas |
-|---|---|---|---|
-| E2-01 | Implementar RAG com Qdrant (`POST /ingest`, busca top-3 no classify) | Alta | Ver fluxo principal §5 |
-| E2-02 | **Taxonomia configurável via `config/categorias.yml`** | Alta | Decisão técnica acima; PyYAML em `prompts.py`; alinhar RAG e `ClassificationResult` |
-| E2-03 | Persistência `TicketLog` em PostgreSQL | Média | Schema já definido em §4 |
-| E2-04 | Traces LangFuse por requisição | Média | Métricas em §6 |
+| ID | Tarefa | Prioridade | Status | Notas |
+|---|---|---|---|---|
+| E2-01 | Implementar RAG com Qdrant | Alta | ✅ Concluído | Ingestão com `pdfplumber` e TextSplitter; embeddings `gemini-embedding-001` |
+| E2-02 | **Taxonomia configurável e hierárquica** | Alta | ✅ Concluído | `categorias.yml` com validação de path via Pydantic; busca RAG filtrada |
+
+---
+
+## Etapa 3 — Orquestração com n8n
+
+**Objetivo:** Usar o n8n como camada de orquestração — recebendo chamados de fontes reais e roteando para o agente FastAPI.
+
+| ID | Tarefa | Prioridade | Status | Notas |
+|---|---|---|---|---|
+| E3-01 | Container do n8n | Alta | ⏳ Pendente | Adicionar n8n ao `docker-compose.yml` e expor na porta 5678 |
+| E3-02 | Fluxo Principal | Alta | ⏳ Pendente | Webhook -> POST `/classify` -> Switch de Decisão |
+| E3-03 | Ação Automática | Média | ⏳ Pendente | Mock de resolução via n8n (ex: responder webhook) se `auto_resolve=true` |
+| E3-04 | Alerta Humano | Média | ⏳ Pendente | Mock de notificação (ex: Telegram/Slack) para casos de urgência |
+
+---
+
+## Etapa 4 — Observabilidade e Persistência (MLOps)
+
+**Objetivo:** Instrumentar o agente para registrar cada requisição com custo, latência e persistir histórico no banco.
+
+| ID | Tarefa | Prioridade | Status | Notas |
+|---|---|---|---|---|
+| E4-01 | Persistência `TicketLog` | Média | ⏳ Pendente | Uso de PostgreSQL + SQLAlchemy (Migrado da Etapa 2) |
+| E4-02 | Traces LangFuse | Alta | ⏳ Pendente | Rodando LangFuse via Docker local (Migrado da Etapa 2) |
 
 ---
 
@@ -144,7 +177,7 @@ Recebe o texto de um chamado e retorna classificação estruturada.
 ```json
 {
   "ticket_id": "string",
-  "category": "Rede | Acesso | Hardware | Software | Outro",
+  "category": "INFRAESTRUTURA/VPN/ERRO_CONEXAO",
   "urgency": "Alta | Média | Baixa",
   "suggested_action": "string",
   "auto_resolve": true,
@@ -157,7 +190,7 @@ Recebe o texto de um chamado e retorna classificação estruturada.
 **Erros**
 | Código | Motivo |
 |---|---|
-| 422 | Campo obrigatório ausente ou tipo inválido |
+| 422 | Campo obrigatório ausente ou tipo inválido / path de categoria inválido |
 | 503 | LLM API indisponível |
 | 500 | Erro interno |
 
@@ -171,7 +204,7 @@ Recebe um documento (PDF ou TXT) e indexa no banco vetorial.
 ```
 file: <arquivo PDF ou TXT>
 doc_type: "runbook" | "policy" | "resolved_ticket"
-tags: ["rede", "acesso"] (opcional)
+path: "INFRAESTRUTURA/VPN/ERRO_CONEXAO"
 ```
 
 **Response 200**
@@ -227,7 +260,7 @@ class TicketInput(BaseModel):
 ```python
 class ClassificationResult(BaseModel):
     ticket_id: str
-    category: Literal["Rede", "Acesso", "Hardware", "Software", "Outro"]
+    category: str                      # Path hierárquico (ex: INFRAESTRUTURA/VPN/ERRO_CONEXAO) validado via field_validator
     urgency: Literal["Alta", "Média", "Baixa"]
     suggested_action: str              # Texto livre com ação recomendada
     auto_resolve: bool                 # Se o agente pode resolver sozinho
@@ -262,16 +295,16 @@ class TicketLog(BaseModel):
 
 ```
 1. Receber chamado (texto)
-2. Buscar chunks similares no Qdrant (top 3)
-3. Montar prompt com: instrução + contexto RAG + texto do chamado
-4. Chamar LLM e obter ClassificationResult
+2. Primeira chamada LLM: Classificar urgência e path da categoria
+3. Buscar chunks similares no Qdrant (top 3) filtrando pelo path retornado
+4. Segunda chamada LLM (se auto_resolve=true e RAG houver contexto): Sugerir ação baseada no runbook
 5. Se auto_resolve = true E urgency != "Alta":
      → Executar ação automática
      → Logar como resolvido
 6. Senão:
      → Retornar classificação para n8n
      → n8n notifica humano responsável
-7. Persistir log no banco
+7. Persistir log no banco (PostgreSQL via SQLAlchemy)
 8. Enviar trace para LangFuse
 ```
 
@@ -334,21 +367,24 @@ class TicketLog(BaseModel):
 
 ## 8. Variáveis de Ambiente
 
-### Provider de LLM (`LLM_PROVIDER`)
+### Providers
 
-O agente usa **LangChain** com provider selecionado por variável de ambiente. Não é necessário alterar código para trocar de modelo.
+O agente usa **LangChain** com provider selecionado por variável de ambiente.
 
 | Provider | Uso recomendado | Modelo padrão | API key |
 |---|---|---|---|
 | `gemini` | Produção | `gemini-2.5-flash` (`GEMINI_MODEL`) | `GEMINI_API_KEY` |
 | `groq` | Desenvolvimento | `llama-3.1-8b-instant` (`GROQ_MODEL`) | `GROQ_API_KEY` |
-| `ollama` | Local / offline | `llama3.2` (`OLLAMA_MODEL`) | Não exige — Ollama deve estar instalado e rodando |
+| `ollama` | Local / offline | `llama3.2` (`OLLAMA_MODEL`) | Não exige |
 
-**Ollama:** requer [Ollama](https://ollama.com/) instalado separadamente (`ollama serve`). Performance depende do hardware. Modelos sugeridos: `llama3.2` em CPU; `llama3.1:8b` com GPU.
+**Embeddings:** Configurado de forma independente, utilizando `EMBEDDING_PROVIDER`.
 
 ```env
-# LLM
-LLM_PROVIDER=groq                    # gemini | groq | ollama
+# LLM — provider: gemini (produção) | groq (dev) | ollama (local/offline)
+LLM_PROVIDER=groq
+
+# Embeddings — provider: google (dev/prod) | ollama (offline)
+EMBEDDING_PROVIDER=google
 
 # Gemini (produção)
 GEMINI_API_KEY=AIza...
@@ -390,6 +426,8 @@ MAX_UPLOAD_SIZE_MB=10
 - Multi-idioma
 - SLA e contratos de suporte
 - Autenticação de usuários (OAuth / AD) — previsto para v2
+- **Sugestão e Recomendação Dinâmica de Categorias (Futuro):** O agente deve validar se o chamado de entrada possui alguma classificação condizente na taxonomia existente. Caso não encontre um encaixe adequado (baixa confiança), o agente deverá classificar o chamado sob um fallback genérico temporário e registrar/recomendar nos metadados da resposta a criação de uma nova categorização estruturada para posterior criação no `categorias.yml` pelos administradores.
+
 
 ---
 
@@ -398,4 +436,8 @@ MAX_UPLOAD_SIZE_MB=10
 | Data | Versão | Mudança |
 |---|---|---|
 | 27/05/2026 | 1.0 | Spec inicial criada |
-| 28/05/2026 | 1.1 | Decisão técnica: taxonomia de categorias via YAML (Etapa 2); backlog Etapa 2 (E2-01 a E2-04) |
+| 28/05/2026 | 1.1 | Decisão técnica: taxonomia de categorias via YAML (Etapa 2) |
+| 11/06/2026 | 1.2 | Atualização para Etapa 2: Taxonomia hierárquica (path), separação de Embeddings (Google) e LLM, Langfuse local, SQLAlchemy e pdfplumber |
+| 11/06/2026 | 1.3 | Refinamento do critério de auto-resolução das categorias e definição da lista final de 21 paths |
+| 11/06/2026 | 1.3.1 | Adição de funcionalidade futura de recomendação dinâmica de novas categorias na spec |
+| 17/06/2026 | 1.4 | Reorganização de roadmap: n8n antecipado para Etapa 3 visando orquestração end-to-end. PostgreSQL e LangFuse movidos para Etapa 4 (Observabilidade). |
