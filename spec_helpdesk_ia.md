@@ -81,8 +81,8 @@ Vector DB  Gemini / Groq / Ollama
 
 **Decisões tomadas:**
 1. **Taxonomia Hierárquica:** Substituir categorias flat ("Rede", "Acesso", "Hardware"...) por paths hierárquicos no formato `AREA/SUBAREA/ACAO`, configurados via `config/categorias.yml`.
-2. **Embeddings Provider:** Separação das chamadas de LLM e embeddings. Uso padrão do Google `text-embedding-004` (via `langchain-google-genai`), com Ollama (`nomic-embed-text`) apenas como fallback offline.
-3. **RAG e Contexto:** Cada chunk no Qdrant recebe metadados com o path hierárquico. A busca vetorial é filtrada pelo path do chamado classificado, utilizando `RecursiveCharacterTextSplitter` (400 tokens / 60 overlap).
+2. **Embeddings Provider:** Separação das chamadas de LLM e embeddings. Uso padrão do Google `gemini-embedding-001` (3072 dim), substituindo o planejado `text-embedding-004` que não funcionou.
+3. **RAG e Contexto:** A busca vetorial utiliza um particionamento inteligente em duas etapas para documentos (800 chars / 100 overlap). Para `.md`, aplica-se o `MarkdownHeaderTextSplitter` para preservar seções (garantindo que passos de troubleshooting não sejam cortados), fazendo fallback no `RecursiveCharacterTextSplitter`. Metadados estruturais como `secao` e `subsecao` são anexados nativamente a cada chunk no Qdrant.
 4. **Base Sintética:** Documentos gerados por IA mantidos em `docs/knowledge_base/` simulando casos reais.
 5. **Critério de Auto-resolução (`auto_resolve_elegivel`):** Definido como `true` **SOMENTE** se:
    - O usuário comum (sem privilégio admin) consegue seguir o passo a passo sozinho.
@@ -140,10 +140,10 @@ Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não imp
 
 | ID | Tarefa | Prioridade | Status | Notas |
 |---|---|---|---|---|
-| E3-01 | Container do n8n | Alta | ⏳ Pendente | Adicionar n8n ao `docker-compose.yml` e expor na porta 5678 |
-| E3-02 | Fluxo Principal | Alta | ⏳ Pendente | Webhook -> POST `/classify` -> Switch de Decisão |
-| E3-03 | Ação Automática | Média | ⏳ Pendente | Mock de resolução via n8n (ex: responder webhook) se `auto_resolve=true` |
-| E3-04 | Alerta Humano | Média | ⏳ Pendente | Mock de notificação (ex: Telegram/Slack) para casos de urgência |
+| E3-01 | Container do n8n | Alta | ✅ Concluído | Adicionar n8n ao `docker-compose.yml` e expor na porta 5678 |
+| E3-02 | Fluxo Principal | Alta | ✅ Concluído | Webhook -> POST `/classify` -> Switch de Decisão |
+| E3-03 | Ação Automática | Média | ✅ Concluído | Mock de resolução via n8n (ex: responder webhook) se `auto_resolve=true` |
+| E3-04 | Alerta Humano | Média | ✅ Concluído | Mock de notificação (ex: Telegram/Slack) para casos de urgência |
 
 ---
 
@@ -441,3 +441,4 @@ MAX_UPLOAD_SIZE_MB=10
 | 11/06/2026 | 1.3 | Refinamento do critério de auto-resolução das categorias e definição da lista final de 21 paths |
 | 11/06/2026 | 1.3.1 | Adição de funcionalidade futura de recomendação dinâmica de novas categorias na spec |
 | 17/06/2026 | 1.4 | Reorganização de roadmap: n8n antecipado para Etapa 3 visando orquestração end-to-end. PostgreSQL e LangFuse movidos para Etapa 4 (Observabilidade). |
+| 17/06/2026 | 1.4.2 | Registro de divergências da Etapa 2: Adoção do modelo gemini-embedding-001 (devido a erro 404 no text-embedding-004) e refatoração da estratégia de RAG para usar MarkdownHeaderTextSplitter preservando estruturas de troubleshooting completas (com fallback para RecursiveCharacterTextSplitter de 800/100 caracteres). |

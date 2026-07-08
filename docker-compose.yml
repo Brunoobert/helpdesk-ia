@@ -7,8 +7,10 @@ services:
       - .env
     environment:
       - QDRANT_URL=http://qdrant:6333
+      - DATABASE_URL=postgresql://user:pass@db:5432/helpdesk
     depends_on:
       - qdrant
+      - db
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -17,5 +19,42 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=helpdesk
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=my-super-secret-nextauth-secret
+      - SALT=my-super-secret-salt
+      - TELEMETRY_ENABLED=false
+    depends_on:
+      - db
+
 volumes:
   qdrant_data:
+  n8n_data:
+  postgres_data:
