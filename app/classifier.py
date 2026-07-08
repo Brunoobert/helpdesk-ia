@@ -9,6 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.prompts import CLASSIFY_SYSTEM_PROMPT
 from app.schemas import ClassificationResult, TicketInput
+from sqlalchemy.orm import Session
+from langfuse.callback import CallbackHandler
 
 load_dotenv()
 
@@ -17,6 +19,17 @@ _llm: BaseChatModel | None = None
 
 class LLMUnavailableError(Exception):
     """Raised when the LLM API is unavailable or times out."""
+
+
+def _get_langfuse_handler() -> CallbackHandler | None:
+    """Retorna o handler do Langfuse se as credenciais estiverem no ambiente."""
+    if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+        return CallbackHandler(
+            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+            host=os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+        )
+    return None
 
 
 def _build_llm() -> BaseChatModel:
@@ -75,23 +88,49 @@ def _message_content_to_str(content: Any) -> str:
     return str(content)
 
 
-def _invoke_llm(text: str, context: str = "") -> str:
+def _invoke_llm(text: str, context: str = "", callbacks: list = None) -> tuple[str, int]:
     llm = _get_llm()
     
     human_text = f"Chamado do usuário:\n{text}"
     if context:
         human_text += f"\n\n--- CONTEXTO DA BASE DE CONHECIMENTO ---\n{context}"
         
+    config = {}
+    if callbacks:
+        config["callbacks"] = callbacks
+        
     response = llm.invoke(
         [
             SystemMessage(content=CLASSIFY_SYSTEM_PROMPT),
             HumanMessage(content=human_text),
-        ]
+        ],
+        config=config
     )
-    return _message_content_to_str(response.content).strip()
+    
+    # Tenta extrair quantidade total de tokens consumidos
+    tokens = 0
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        tokens = response.usage_metadata.get("total_tokens", 0)
+    elif hasattr(response, "response_metadata") and "token_usage" in response.response_metadata:
+        token_usage = response.response_metadata["token_usage"]
+        if isinstance(token_usage, dict):
+            tokens = token_usage.get("total_tokens", 0)
+            
+    return _message_content_to_str(response.content).strip(), tokens
 
 
-def classify_ticket(ticket: TicketInput) -> ClassificationResult:
+def _clean_json_text(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationResult:
     start = time.time()
     
     rag_context = ""
@@ -114,14 +153,20 @@ def classify_ticket(ticket: TicketInput) -> ClassificationResult:
     except Exception as e:
         print(f"Aviso: Erro ao buscar na base de conhecimento (RAG ignorado): {e}")
 
-    # 2. Envia para o LLM classificar
+    # 2. Configura handler opcional do Langfuse
+    handler = _get_langfuse_handler()
+    callbacks = [handler] if handler else None
+
+    # 3. Envia para o LLM classificar
     try:
-        raw_text = _invoke_llm(ticket.text, context=rag_context)
+        raw_text, tokens_used = _invoke_llm(ticket.text, context=rag_context, callbacks=callbacks)
     except Exception as exc:
         raise LLMUnavailableError("LLM API indisponivel") from exc
 
     elapsed_ms = int((time.time() - start) * 1000)
-    raw = json.loads(raw_text)
+    print(f"DEBUG: Raw LLM response: {repr(raw_text)}")
+    cleaned_text = _clean_json_text(raw_text)
+    raw = json.loads(cleaned_text)
 
     # Enforcement das regras de negocio: nunca confiar apenas no LLM.
     if raw.get("urgency") == "Alta":

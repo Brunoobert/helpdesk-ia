@@ -1,0 +1,132 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chamado",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b6a7fb23-3d02-4fc8-9d56-78b1f513d6cd",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "bd386df2-f67f-47cf-b593-dfcfcfd326f4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://agent:8000/classify",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"ticket_id\": \"TKT-N8N-001\",\n  \"text\": \"{{ $json.body.descricao_problema }}\",\n  \"source\": \"webhook\"\n}",
+        "options": {}
+      },
+      "id": "e7b0e157-b08e-4f5c-89a3-5c8a411cfeb9",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.auto_resolve }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "893c8d19-d9fc-4fb5-9b7e-9774620023cf",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"Resolvido por IA\", \"solucao\": $json.suggested_action } }}",
+        "options": {}
+      },
+      "id": "6d3ea747-8822-4ccb-88a4-ea0443fb79ab",
+      "name": "Respond to Webhook (Auto-Resolve)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"Escalado para Humano\", \"motivo\": \"Urgência Alta ou Baixa Confiança\", \"dados\": $json } }}",
+        "options": {}
+      },
+      "id": "1ad3c734-7a3c-42cc-a0f5-207a1bb507bc",
+      "name": "Respond to Webhook (Escalation)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Auto-Resolve)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook (Escalation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

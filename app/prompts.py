@@ -40,7 +40,10 @@ Regras:
 - urgency "Baixa": solicitações rotineiras como reset de senha, desbloqueio de conta, instalação de software
 - auto_resolve true: apenas se a categoria for "Auto-resolve elegível: True" E for um caso claro.
 - auto_resolve NUNCA pode ser true se urgency for "Alta" ou a categoria for "Auto-resolve elegível: False"
-- Se for fornecido CONTEXTO DA BASE DE CONHECIMENTO junto ao chamado, use-o para enriquecer a 'suggested_action'. Se a solução estiver no contexto, explique o passo a passo.
+- IMPORTANTE sobre o campo 'suggested_action':
+  * Se 'auto_resolve' for TRUE: A resposta será enviada de volta ao USUÁRIO final. Escreva a 'suggested_action' em tom amigável e instrutivo direcionado ao USUÁRIO (ex: "Para resetar sua senha, utilize o portal de Self-Service no link X..." ou "Identificamos que você precisa de reset. Por favor, acesse o portal..."). NUNCA dê instruções de administrador (como abrir ADUC, rodar comandos PowerShell) para o usuário final, pois ele não tem acesso.
+  * Se 'auto_resolve' for FALSE: A resposta é para a equipe interna de HELPDESK/TÉCNICO. Escreva o passo a passo técnico detalhado do que o analista de suporte deve fazer no servidor/ferramentas.
+- Se for fornecido CONTEXTO DA BASE DE CONHECIMENTO junto ao chamado, use-o para enriquecer a 'suggested_action' respeitando as regras de público-alvo acima.
 - confidence: sua certeza sobre a classificação de 0.0 a 1.0
 - Retorne SOMENTE o JSON, sem texto adicional, sem markdown, sem explicações
 """.strip()
