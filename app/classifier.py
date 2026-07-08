@@ -174,6 +174,28 @@ def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationRe
     if raw.get("confidence", 0) < float(os.getenv("AUTO_RESOLVE_CONFIDENCE_THRESHOLD", "0.7")):
         raw["auto_resolve"] = False
 
+    # 4. Grava histórico na tabela do Postgres (se a sessão do banco estiver disponível)
+    if db:
+        try:
+            from app.models import TicketLogModel
+            log = TicketLogModel(
+                ticket_id=ticket.ticket_id,
+                input_text=ticket.text,
+                category=raw["category"],
+                urgency=raw["urgency"],
+                suggested_action=raw["suggested_action"],
+                auto_resolved=raw["auto_resolve"],
+                tokens_used=tokens_used,
+                cost_usd=0.0, # Deixamos zerado; Langfuse cuidará de calcular o custo no painel
+                processing_ms=elapsed_ms
+            )
+            db.add(log)
+            db.commit()
+            print(f"Log do ticket '{ticket.ticket_id}' salvo com sucesso no banco de dados.")
+        except Exception as db_err:
+            print(f"Aviso: Erro ao persistir ticket no banco de dados: {db_err}")
+            db.rollback()
+
     return ClassificationResult(
         ticket_id=ticket.ticket_id,
         category=raw["category"],

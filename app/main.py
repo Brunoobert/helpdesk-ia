@@ -1,10 +1,13 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 import shutil
 from pathlib import Path
 from app.rag import ingest_document
+
+from app.database import Base, engine, get_db
+from sqlalchemy.orm import Session
 
 from app.classifier import LLMUnavailableError, classify_ticket
 from app.schemas import ClassificationResult, HealthResponse, TicketInput
@@ -14,14 +17,22 @@ load_dotenv()
 app = FastAPI(title="Help Desk IA")
 
 
+@app.on_event("startup")
+def on_startup():
+    # Cria as tabelas do banco se não existirem no startup da aplicação
+    Base.metadata.create_all(bind=engine)
+
+
 @app.post("/classify", response_model=ClassificationResult)
-def classify(ticket: TicketInput) -> ClassificationResult:
+def classify(ticket: TicketInput, db: Session = Depends(get_db)) -> ClassificationResult:
     try:
-        return classify_ticket(ticket)
+        return classify_ticket(ticket, db)
     except LLMUnavailableError:
         raise HTTPException(status_code=503, detail="LLM API indisponível")
-    except Exception:
-        raise HTTPException(status_code=500, detail="Erro interno")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
 @app.post("/ingest")
@@ -69,13 +80,25 @@ def _qdrant_status() -> str:
         return "error"
 
 
+def _database_status() -> str:
+    from sqlalchemy import text
+    from app.database import SessionLocal
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        return "ok"
+    except Exception:
+        return "error"
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     services = {
         "qdrant": _qdrant_status(),
         "llm_api": _llm_api_status(),
         "langfuse": "ok" if os.getenv("LANGFUSE_SECRET_KEY") else "error",
-        "database": "ok" if os.getenv("DATABASE_URL") else "error",
+        "database": _database_status(),
     }
     status = "ok" if all(v == "ok" for v in services.values()) else "degraded"
     return HealthResponse(status=status, services=services)

@@ -3,6 +3,7 @@ import pdfplumber
 import uuid
 from typing import List, Dict, Any
 from dotenv import load_dotenv
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
@@ -50,19 +51,37 @@ def init_qdrant():
         )
         print(f"Coleção '{COLLECTION_NAME}' criada com sucesso no Qdrant.")
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+def chunk_document(text: str, is_markdown: bool = False, chunk_size: int = 800, overlap: int = 100) -> List[Dict[str, Any]]:
     """
-    Divide um texto grande em pedaços menores (chunks).
-    Usamos 'overlap' (sobreposição) para que o final de um chunk seja o começo do outro,
-    evitando que uma frase ou conceito seja cortado no meio e perca o sentido.
+    Divide um texto grande em pedaços menores (chunks) baseando-se no número de CARACTERES.
+    Se for Markdown, preserva as seções lógicas (## Problema) para não quebrar passo a passo no meio.
+    Retorna uma lista de dicionários contendo o 'text' e os 'metadata' (ex: {'secao': 'Problema X'}).
     """
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start += (chunk_size - overlap)
-    return chunks
+    result = []
+    
+    if is_markdown:
+        headers_to_split_on = [("##", "secao"), ("###", "subsecao")]
+        md_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+        secoes = md_splitter.split_text(text)
+        
+        splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
+        chunks_finais = splitter.split_documents(secoes)
+        
+        for chunk in chunks_finais:
+            result.append({
+                "text": chunk.page_content,
+                "metadata": chunk.metadata
+            })
+    else:
+        splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
+        str_chunks = splitter.split_text(text)
+        for chunk in str_chunks:
+            result.append({
+                "text": chunk,
+                "metadata": {}
+            })
+            
+    return result
 
 def ingest_document(file_path: str):
     """
@@ -106,14 +125,27 @@ def ingest_document(file_path: str):
         with open(file_path, 'r', encoding='utf-8') as f:
             full_text = f.read()
     
+    is_markdown = file_path.lower().endswith('.md')
     print("Criando chunks de texto...")
-    chunks = chunk_text(full_text)
+    chunks_data = chunk_document(full_text, is_markdown=is_markdown)
     
-    print(f"Gerando embeddings para {len(chunks)} chunks e salvando no Qdrant...")
+    print(f"Gerando embeddings para {len(chunks_data)} chunks e salvando no Qdrant...")
     points = []
-    for i, chunk in enumerate(chunks):
+    for i, item in enumerate(chunks_data):
+        chunk_text = item["text"]
+        chunk_meta = item["metadata"]
+        
         # Transforma o pedaço de texto numérico
-        vector = embeddings_model.embed_query(chunk)
+        vector = embeddings_model.embed_query(chunk_text)
+        
+        # Payload base
+        payload = {
+            "source": os.path.basename(file_path),
+            "text": chunk_text,
+            "chunk_index": i
+        }
+        # Mesclar metadados da seção (do MarkdownHeaderTextSplitter) sem apagar a base
+        payload.update(chunk_meta)
         
         # Cria um ponto estruturado para o Qdrant
         point_id = str(uuid.uuid4())
@@ -121,11 +153,7 @@ def ingest_document(file_path: str):
             PointStruct(
                 id=point_id,
                 vector=vector,
-                payload={
-                    "source": os.path.basename(file_path),
-                    "text": chunk,
-                    "chunk_index": i
-                }
+                payload=payload
             )
         )
     
