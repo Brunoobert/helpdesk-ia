@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from typing import Any
 
@@ -23,11 +24,13 @@ class LLMUnavailableError(Exception):
 
 def _get_langfuse_handler() -> CallbackHandler | None:
     """Retorna o handler do Langfuse se as credenciais estiverem no ambiente."""
-    if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+    if public_key and secret_key:
         return CallbackHandler(
-            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-            host=os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+            public_key=public_key,
+            secret_key=secret_key,
+            host=os.getenv("LANGFUSE_HOST", "http://localhost:3000"),
         )
     return None
 
@@ -121,13 +124,13 @@ def _invoke_llm(text: str, context: str = "", callbacks: list = None) -> tuple[s
 
 def _clean_json_text(text: str) -> str:
     text = text.strip()
-    if text.startswith("```json"):
-        text = text[7:]
-    elif text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
+    # Extrai estritamente a partir do primeiro '{' até o último '}'
+    # Isso evita que blocos markdown internos no suggested_action confundam o parser
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return text[first_brace : last_brace + 1].strip()
+    return text
 
 
 def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationResult:
@@ -166,13 +169,31 @@ def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationRe
     elapsed_ms = int((time.time() - start) * 1000)
     print(f"DEBUG: Raw LLM response: {repr(raw_text)}")
     cleaned_text = _clean_json_text(raw_text)
-    raw = json.loads(cleaned_text)
+    
+    try:
+        raw = json.loads(cleaned_text)
+        if not isinstance(raw, dict):
+            raw = {}
+    except Exception as e:
+        print(f"Aviso: LLM retornou texto que não é JSON ({e}). Aplicando fallback de segurança.")
+        raw = {
+            "category": "HELPDESK/SO/CORRIGIR_ERRO_WINDOWS",
+            "urgency": "Média",
+            "suggested_action": f"Mensagem não estruturada ou recusa do modelo: '{raw_text[:200]}'. Necessário análise manual do analista.",
+            "auto_resolve": False,
+            "confidence": 0.0,
+        }
+
+    # Validação e saneamento dos campos obrigatórios caso o LLM omita chaves (ex: prompt injection / jailbreak)
+    category = raw.get("category", "HELPDESK/SO/CORRIGIR_ERRO_WINDOWS")
+    urgency = raw.get("urgency", "Média")
+    suggested_action = raw.get("suggested_action", "Não foi possível determinar a ação recomendada.")
+    auto_resolve = bool(raw.get("auto_resolve", False))
+    confidence = float(raw.get("confidence", 0.0))
 
     # Enforcement das regras de negocio: nunca confiar apenas no LLM.
-    if raw.get("urgency") == "Alta":
-        raw["auto_resolve"] = False
-    if raw.get("confidence", 0) < float(os.getenv("AUTO_RESOLVE_CONFIDENCE_THRESHOLD", "0.7")):
-        raw["auto_resolve"] = False
+    if urgency == "Alta" or confidence < float(os.getenv("AUTO_RESOLVE_CONFIDENCE_THRESHOLD", "0.7")):
+        auto_resolve = False
 
     # 4. Grava histórico na tabela do Postgres (se a sessão do banco estiver disponível)
     if db:
@@ -181,10 +202,10 @@ def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationRe
             log = TicketLogModel(
                 ticket_id=ticket.ticket_id,
                 input_text=ticket.text,
-                category=raw["category"],
-                urgency=raw["urgency"],
-                suggested_action=raw["suggested_action"],
-                auto_resolved=raw["auto_resolve"],
+                category=category,
+                urgency=urgency,
+                suggested_action=suggested_action,
+                auto_resolved=auto_resolve,
                 tokens_used=tokens_used,
                 cost_usd=0.0, # Deixamos zerado; Langfuse cuidará de calcular o custo no painel
                 processing_ms=elapsed_ms
@@ -198,11 +219,11 @@ def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationRe
 
     return ClassificationResult(
         ticket_id=ticket.ticket_id,
-        category=raw["category"],
-        urgency=raw["urgency"],
-        suggested_action=raw["suggested_action"],
-        auto_resolve=raw["auto_resolve"],
-        confidence=raw["confidence"],
+        category=category,
+        urgency=urgency,
+        suggested_action=suggested_action,
+        auto_resolve=auto_resolve,
+        confidence=confidence,
         rag_context_used=rag_used,
         processing_ms=elapsed_ms,
     )

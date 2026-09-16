@@ -42,14 +42,15 @@ services:
       - ./config/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
 
   langfuse:
-    image: langfuse/langfuse:2
+    image: langfuse/langfuse:2.36.0
     ports:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgresql://user:pass@db:5432/langfuse
       - NEXTAUTH_URL=http://localhost:3000
-      - NEXTAUTH_SECRET=my-super-secret-nextauth-secret
-      - SALT=my-super-secret-salt
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
       - TELEMETRY_ENABLED=false
     depends_on:
       - db

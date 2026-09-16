@@ -1,8 +1,8 @@
 # 📋 Spec — Help Desk IA com RAG, n8n e AWS
 
-> **Versão:** 1.3.2
-> **Status:** Em desenvolvimento  
-> **Última atualização:** 17/06/2026
+> **Versão:** 1.5.0
+> **Status:** Etapa 4 Concluída (Pronto para Etapa 5 - AWS Cloud)  
+> **Última atualização:** 16/09/2026
 
 ---
 
@@ -153,8 +153,8 @@ Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não imp
 
 | ID | Tarefa | Prioridade | Status | Notas |
 |---|---|---|---|---|
-| E4-01 | Persistência `TicketLog` | Média | ⏳ Pendente | Uso de PostgreSQL + SQLAlchemy (Migrado da Etapa 2) |
-| E4-02 | Traces LangFuse | Alta | ⏳ Pendente | Rodando LangFuse via Docker local (Migrado da Etapa 2) |
+| E4-01 | Persistência `TicketLog` | Média | ✅ Concluído | Uso de PostgreSQL + SQLAlchemy, tabela `ticket_logs` persistindo histórico |
+| E4-02 | Traces LangFuse | Alta | ✅ Concluído | Langfuse v2.36.0 integrado diretamente ao PostgreSQL (sem necessidade de ClickHouse/Redis) |
 
 ---
 
@@ -442,3 +442,4 @@ MAX_UPLOAD_SIZE_MB=10
 | 11/06/2026 | 1.3.1 | Adição de funcionalidade futura de recomendação dinâmica de novas categorias na spec |
 | 17/06/2026 | 1.4 | Reorganização de roadmap: n8n antecipado para Etapa 3 visando orquestração end-to-end. PostgreSQL e LangFuse movidos para Etapa 4 (Observabilidade). |
 | 17/06/2026 | 1.4.2 | Registro de divergências da Etapa 2: Adoção do modelo gemini-embedding-001 (devido a erro 404 no text-embedding-004) e refatoração da estratégia de RAG para usar MarkdownHeaderTextSplitter preservando estruturas de troubleshooting completas (com fallback para RecursiveCharacterTextSplitter de 800/100 caracteres). |
+| 16/09/2026 | 1.5.0 | Finalização da Etapa 4 (MLOps): Resolução de segfault do Langfuse fixando imagem v2.36.0 (PostgreSQL-only, sem dependência de ClickHouse/Redis). Tratamento defensivo contra Prompt Injection e recusas de LLM no classifier.py com fallback automático para escalonamento humano. Correção no parsing de JSON com blocos de markdown embutidos. Validação end-to-end com n8n, Postman, FastAPI e Qdrant. |

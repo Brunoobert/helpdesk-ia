@@ -31,7 +31,7 @@ def test_ticket_log_saved_in_database(db_session):
         source="manual"
     )
     
-    with patch("app.classifier.search_knowledge_base") as mock_rag, \
+    with patch("app.rag.search_knowledge_base") as mock_rag, \
          patch("app.classifier._invoke_llm") as mock_llm:
          
         mock_rag.return_value = []

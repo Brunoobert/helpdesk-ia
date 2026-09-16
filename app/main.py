@@ -7,6 +7,7 @@ from pathlib import Path
 from app.rag import ingest_document
 
 from app.database import Base, engine, get_db
+from app.models import TicketLogModel  # noqa: F401 – registra o modelo no Base.metadata
 from sqlalchemy.orm import Session
 
 from app.classifier import LLMUnavailableError, classify_ticket
