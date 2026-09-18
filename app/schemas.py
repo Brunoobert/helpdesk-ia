@@ -14,6 +14,9 @@ class TicketInput(BaseModel):
     ticket_id: str
     text: str
     source: Literal["email", "webhook", "manual"]
+    # E4-06: Override dinâmico de modelo por requisição (payload ou header X-LLM-Provider/X-LLM-Model)
+    llm_provider: Optional[str] = None  # "gemini" | "groq" | "ollama" — fallback para LLM_PROVIDER do .env
+    llm_model: Optional[str] = None     # modelo específico — fallback para *_MODEL do .env
 
 
 class ClassificationResult(BaseModel):

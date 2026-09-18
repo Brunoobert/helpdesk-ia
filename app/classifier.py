@@ -2,7 +2,7 @@ import json
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -35,14 +35,18 @@ def _get_langfuse_handler() -> CallbackHandler | None:
     return None
 
 
-def _build_llm() -> BaseChatModel:
-    provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+def _build_llm(provider: str, model: Optional[str] = None) -> BaseChatModel:
+    """
+    Cria um objeto LLM para o provider e modelo informados.
+    Se `model` for None, usa o modelo padrão definido nas variáveis de ambiente.
+    """
+    provider = provider.lower()
 
     if provider == "groq":
         from langchain_groq import ChatGroq
 
         return ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            model=model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
             api_key=os.getenv("GROQ_API_KEY"),
             temperature=0,
         )
@@ -51,7 +55,7 @@ def _build_llm() -> BaseChatModel:
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model=os.getenv("OLLAMA_MODEL", "llama3.2"),
+            model=model or os.getenv("OLLAMA_MODEL", "llama3.2"),
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             temperature=0,
         )
@@ -60,7 +64,7 @@ def _build_llm() -> BaseChatModel:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            model=model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             google_api_key=os.getenv("GEMINI_API_KEY"),
             temperature=0,
         )
@@ -68,11 +72,32 @@ def _build_llm() -> BaseChatModel:
     raise ValueError(f"LLM_PROVIDER nao suportado: {provider}")
 
 
-def _get_llm() -> BaseChatModel:
+def _get_default_llm() -> BaseChatModel:
+    """
+    Retorna o LLM padrão (singleton cacheado), configurado pelo .env.
+    Instanciado apenas uma vez durante a vida do servidor para economizar recursos.
+    """
     global _llm
     if _llm is None:
-        _llm = _build_llm()
+        _llm = _build_llm(provider=os.getenv("LLM_PROVIDER", "gemini"))
     return _llm
+
+
+def _resolve_llm(provider: Optional[str] = None, model: Optional[str] = None) -> BaseChatModel:
+    """
+    E4-06 — Seleção dinâmica de LLM por requisição.
+
+    Lógica de decisão:
+    - Se `provider` foi informado na requisição (via header X-LLM-Provider ou campo payload):
+        → Cria um LLM descártável (não cacheado) para essa requisição específica.
+        → `model` opcional permite especificar o modelo exato dentro do provider.
+    - Se nenhum provider vier na requisição:
+        → Usa o singleton cacheado do .env (comportamento original, sem regressão).
+    """
+    if provider:
+        print(f"[Model Switching] Override da requisição: provider={provider}, model={model or 'padrao'}")
+        return _build_llm(provider=provider, model=model)
+    return _get_default_llm()
 
 
 def _message_content_to_str(content: Any) -> str:
@@ -91,17 +116,19 @@ def _message_content_to_str(content: Any) -> str:
     return str(content)
 
 
-def _invoke_llm(text: str, context: str = "", callbacks: list = None) -> tuple[str, int]:
-    llm = _get_llm()
-    
+def _invoke_llm(llm: BaseChatModel, text: str, context: str = "", callbacks: list = None) -> tuple[str, int]:
+    """
+    Executa a chamada ao LLM recebido. O objeto `llm` já é resolvido antes
+    por `_resolve_llm()`, mantendo a separação de responsabilidades.
+    """
     human_text = f"Chamado do usuário:\n{text}"
     if context:
         human_text += f"\n\n--- CONTEXTO DA BASE DE CONHECIMENTO ---\n{context}"
-        
+
     config = {}
     if callbacks:
         config["callbacks"] = callbacks
-        
+
     response = llm.invoke(
         [
             SystemMessage(content=CLASSIFY_SYSTEM_PROMPT),
@@ -109,7 +136,7 @@ def _invoke_llm(text: str, context: str = "", callbacks: list = None) -> tuple[s
         ],
         config=config
     )
-    
+
     # Tenta extrair quantidade total de tokens consumidos
     tokens = 0
     if hasattr(response, "usage_metadata") and response.usage_metadata:
@@ -118,7 +145,7 @@ def _invoke_llm(text: str, context: str = "", callbacks: list = None) -> tuple[s
         token_usage = response.response_metadata["token_usage"]
         if isinstance(token_usage, dict):
             tokens = token_usage.get("total_tokens", 0)
-            
+
     return _message_content_to_str(response.content).strip(), tokens
 
 
@@ -135,34 +162,39 @@ def _clean_json_text(text: str) -> str:
 
 def classify_ticket(ticket: TicketInput, db: Session = None) -> ClassificationResult:
     start = time.time()
-    
+
     rag_context = ""
     rag_used = False
-    
+
     # 1. Busca na Base de Conhecimento (RAG)
     try:
         from app.rag import search_knowledge_base
         results = search_knowledge_base(ticket.text, top_k=2)
-        
+
         docs = []
         for r in results:
             # Filtra resultados pouco relevantes (ajuste fino para Gemini)
             if r["score"] > 0.50:
                 docs.append(f"Fonte: {r['source']}\nConteúdo: {r['text']}")
-        
+
         if docs:
             rag_context = "\n\n".join(docs)
             rag_used = True
     except Exception as e:
         print(f"Aviso: Erro ao buscar na base de conhecimento (RAG ignorado): {e}")
 
-    # 2. Configura handler opcional do Langfuse
+    # 2. E4-06: Resolve qual LLM usar para ESTA requisição
+    # Se o ticket trouxer provider/model (via payload ou header convertido no main.py),
+    # cria um LLM descártável. Caso contrário, usa o singleton do .env.
+    llm = _resolve_llm(provider=ticket.llm_provider, model=ticket.llm_model)
+
+    # 3. Configura handler opcional do Langfuse
     handler = _get_langfuse_handler()
     callbacks = [handler] if handler else None
 
-    # 3. Envia para o LLM classificar
+    # 4. Envia para o LLM classificar
     try:
-        raw_text, tokens_used = _invoke_llm(ticket.text, context=rag_context, callbacks=callbacks)
+        raw_text, tokens_used = _invoke_llm(llm, ticket.text, context=rag_context, callbacks=callbacks)
     except Exception as exc:
         raise LLMUnavailableError("LLM API indisponivel") from exc
 

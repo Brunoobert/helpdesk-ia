@@ -1,7 +1,7 @@
 # 📋 Spec — Help Desk IA com RAG, n8n e AWS
 
-> **Versão:** 1.6.0
-> **Status:** Etapa 4 Concluída (Planejamento Arquitetural & ADRs para Etapa 5 - AWS Cloud)  
+> **Versão:** 1.7.0
+> **Status:** Etapa 4 Concluída | Planejamento da Etapa 4.1 (Excelência LLMOps & Evals)  
 > **Última atualização:** 18/09/2026
 
 ---
@@ -158,19 +158,35 @@ Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não imp
 
 ---
 
+## Etapa 4.1 — Excelência em LLMOps & Avaliação Contínua
+
+**Objetivo:** Elevar a maturidade de MLOps/LLMOps do projeto adicionando auditoria temporal de embeddings, ciclo de feedback humano (Active Learning), suíte automatizada de testes/evals com controle de rate limit (Groq TPM) e alternância dinâmica de modelos sem reiniciar o servidor.
+
+| ID | Tarefa | Prioridade | Status | Notas |
+|---|---|---|---|---|
+| E4-03 | **Versionamento & Auditoria Temporal no RAG** | Alta | ⏳ Pendente | `app/rag.py`: chunks com `is_active`, `version` e `created_at`. Pré-filtro no Qdrant HNSW (ADR-005) |
+| E4-04 | **Feedback Humano (Active Learning)** | Média | ⏳ Pendente | `POST /feedback`: atualiza `correct_classification` no PostgreSQL e registra score de acurácia no Langfuse |
+| E4-05 | **Golden Dataset & Evals com Pacing de Rate Limit** | Alta | ⏳ Pendente | `tests/golden_dataset.json` (20 casos) e `evals/run_evals.py` com delay entre chamadas para respeitar cotas TPM/RPM da Groq |
+| E4-06 | **Troca Dinâmica de Modelo (Model Switching)** | Média | ⏳ Pendente | Header opcional `X-LLM-Provider` ou campo `llm_provider` no payload para alternar modelos em tempo de execução sem alterar `.env` |
+| E4-07 | **Autenticação de Borda via API Key** | Média | ⏳ Pendente | `X-API-Key` nos endpoints operacionais do FastAPI e integração no nó HTTP do n8n (ADR-006) |
+
+---
+
 ## 3. Contratos de API
 
-Todos os endpoints operacionais (`/classify`, `/ingest`) exigem cabeçalho de autenticação:
+Todos os endpoints operacionais (`/classify`, `/ingest`, `/feedback`) exigem cabeçalho de autenticação:
 `X-API-Key: <token>` (validado via secret configurado em variável de ambiente `API_AUTH_KEY`).
 
 ### `POST /classify`
 
-Recebe o texto de um chamado e retorna classificação estruturada.
+Recebe o texto de um chamado e retorna classificação estruturada. Permite override dinâmico do modelo via headers ou payload sem alterar `.env`.
 
 **Headers**
 ```http
 Content-Type: application/json
 X-API-Key: string (obrigatório)
+X-LLM-Provider: string (opcional: "groq" | "gemini" | "ollama" — fallback para LLM_PROVIDER do .env)
+X-LLM-Model: string (opcional: modelo específico — fallback para MODEL do .env)
 ```
 
 **Request**
@@ -178,7 +194,9 @@ X-API-Key: string (obrigatório)
 {
   "ticket_id": "string",
   "text": "string",
-  "source": "email | webhook | manual"
+  "source": "email | webhook | manual",
+  "llm_provider": "groq | gemini | ollama (opcional)",
+  "llm_model": "string (opcional)"
 }
 ```
 
@@ -201,14 +219,14 @@ X-API-Key: string (obrigatório)
 |---|---|
 | 401 | API Key ausente ou inválida (`X-API-Key`) |
 | 422 | Campo obrigatório ausente ou tipo inválido / path de categoria inválido |
-| 503 | LLM API indisponível |
+| 503 | LLM API indisponível ou rate limit (TPM/RPM) excedido |
 | 500 | Erro interno |
 
 ---
 
 ### `POST /ingest`
 
-Recebe um documento (PDF ou TXT) e indexa no banco vetorial com substituição idempotente.
+Recebe um documento (PDF ou TXT) e indexa no banco vetorial com versionamento temporal e soft invalidation (`is_active`).
 
 **Headers**
 ```http
@@ -241,6 +259,44 @@ path: "INFRAESTRUTURA/VPN/ERRO_CONEXAO"
 
 ---
 
+### `POST /feedback`
+
+Registra o feedback de um operador humano sobre a acurácia da classificação do chamado (Active Learning).
+
+**Headers**
+```http
+Content-Type: application/json
+X-API-Key: string (obrigatório)
+```
+
+**Request**
+```json
+{
+  "ticket_id": "string",
+  "correct": true,
+  "correct_category": "INFRAESTRUTURA/VPN/ERRO_CONEXAO (opcional)",
+  "notes": "string (opcional)"
+}
+```
+
+**Response 200**
+```json
+{
+  "status": "success",
+  "ticket_id": "string",
+  "feedback_recorded": true
+}
+```
+
+**Erros**
+| Código | Motivo |
+|---|---|
+| 401 | API Key ausente ou inválida (`X-API-Key`) |
+| 404 | Ticket ID não encontrado no banco de dados |
+| 422 | Payload inválido |
+
+---
+
 ### `GET /health`
 
 Verifica se todos os serviços dependentes estão saudáveis (endpoint público / sem autenticação para probes de orquestração).
@@ -269,6 +325,15 @@ class TicketInput(BaseModel):
     ticket_id: str
     text: str                          # Descrição do chamado
     source: Literal["email", "webhook", "manual"]
+    llm_provider: Optional[str] = None # Override dinâmico opcional ("gemini", "groq", "ollama")
+    llm_model: Optional[str] = None    # Override opcional de modelo específico
+
+
+class FeedbackInput(BaseModel):
+    ticket_id: str
+    correct: bool
+    correct_category: Optional[str] = None
+    notes: Optional[str] = None
 ```
 
 ### ClassificationResult (saída do agente)
@@ -467,6 +532,7 @@ MAX_UPLOAD_SIZE_MB=10
 | 17/06/2026 | 1.4.2 | Registro de divergências da Etapa 2: Adoção do modelo gemini-embedding-001 (devido a erro 404 no text-embedding-004) e refatoração da estratégia de RAG para usar MarkdownHeaderTextSplitter preservando estruturas de troubleshooting completas (com fallback para RecursiveCharacterTextSplitter de 800/100 caracteres). |
 | 16/09/2026 | 1.5.0 | Finalização da Etapa 4 (MLOps): Resolução de segfault do Langfuse fixando imagem v2.36.0 (PostgreSQL-only, sem dependência de ClickHouse/Redis). Tratamento defensivo contra Prompt Injection e recusas de LLM no classifier.py com fallback automático para escalonamento humano. Correção no parsing de JSON com blocos de markdown embutidos. Validação end-to-end com n8n, Postman, FastAPI e Qdrant. |
 | 18/09/2026 | 1.6.0 | Adição formal de ADRs de Arquitetura: ADR-005 (Ciclo de Vida, Versionamento e Auditoria Temporal de Embeddings no RAG via Soft Invalidation com `is_active`), ADR-006 (Autenticação de Borda e Segurança de APIs via `X-API-Key`) e ADR-007 (Estratégia Híbrida de Deploy Cloud AWS com Custo Zero/Mínimo no Free Tier para Etapa 5). |
+| 18/09/2026 | 1.7.0 | Adição do Backlog da Etapa 4.1 (Excelência LLMOps): Endpoint de feedback humano (Active Learning), Evals automatizadas com pacing para respeitar rate limits (Groq TPM) e Model Switching dinâmico via headers/payload sem alteração de .env. |
 
 ---
 

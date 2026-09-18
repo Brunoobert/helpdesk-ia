@@ -384,9 +384,11 @@ class TestResiliencia:
         response = client.post("/classify", json=make_ticket(
             "Qualquer chamado de teste."
         ))
-        # Deve retornar erro controlado, não 500 com stack trace
-        assert response.status_code in {503, 500}
-        assert "detail" in response.json()
+        # Com o fallback defensivo, a API não quebra e retorna 200 com encaminhamento humano
+        assert response.status_code == 200
+        data = response.json()
+        assert data["auto_resolve"] is False
+        assert "análise manual" in data["suggested_action"]
 
     @patch("app.classifier._invoke_llm")
     def test_texto_muito_longo_nao_quebra(self, mock_invoke):

@@ -1,7 +1,8 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
 import shutil
 from pathlib import Path
 from app.rag import ingest_document
@@ -25,7 +26,28 @@ def on_startup():
 
 
 @app.post("/classify", response_model=ClassificationResult)
-def classify(ticket: TicketInput, db: Session = Depends(get_db)) -> ClassificationResult:
+def classify(
+    ticket: TicketInput,
+    db: Session = Depends(get_db),
+    x_llm_provider: Optional[str] = Header(default=None, alias="X-LLM-Provider"),
+    x_llm_model: Optional[str] = Header(default=None, alias="X-LLM-Model"),
+) -> ClassificationResult:
+    """
+    Classifica um chamado de suporte.
+
+    Suporta override dinâmico de modelo (E4-06) via headers opcionais:
+    - X-LLM-Provider: "groq" | "gemini" | "ollama"
+    - X-LLM-Model: nome específico do modelo dentro do provider
+
+    Os headers têm prioridade sobre os campos `llm_provider`/`llm_model` do payload.
+    Se nenhum for informado, usa o provider configurado no .env (comportamento padrão).
+    """
+    # Headers têm prioridade sobre os campos equivalentes no payload
+    if x_llm_provider:
+        ticket.llm_provider = x_llm_provider
+    if x_llm_model:
+        ticket.llm_model = x_llm_model
+
     try:
         return classify_ticket(ticket, db)
     except LLMUnavailableError:
