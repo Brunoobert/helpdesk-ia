@@ -25,7 +25,16 @@
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={\n  \"ticket_id\": \"TKT-N8N-001\",\n  \"text\": \"{{ $json.body.descricao_problema }}\",\n  \"source\": \"webhook\"\n}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.API_AUTH_KEY}}"
+            }
+          ]
+        }
       },
       "id": "e7b0e157-b08e-4f5c-89a3-5c8a411cfeb9",
       "name": "HTTP Request",

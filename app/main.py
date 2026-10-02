@@ -11,6 +11,7 @@ from app.database import Base, engine, get_db
 from app.models import TicketLogModel  # noqa: F401 – registra o modelo no Base.metadata
 from sqlalchemy.orm import Session
 
+from app.auth import verify_api_key
 from app.classifier import LLMUnavailableError, classify_ticket
 from app.schemas import ClassificationResult, HealthResponse, TicketInput
 
@@ -29,6 +30,7 @@ def on_startup():
 def classify(
     ticket: TicketInput,
     db: Session = Depends(get_db),
+    _api_key: str = Depends(verify_api_key),
     x_llm_provider: Optional[str] = Header(default=None, alias="X-LLM-Provider"),
     x_llm_model: Optional[str] = Header(default=None, alias="X-LLM-Model"),
 ) -> ClassificationResult:
@@ -59,7 +61,7 @@ def classify(
 
 
 @app.post("/ingest")
-async def ingest(file: UploadFile = File(...)):
+async def ingest(file: UploadFile = File(...), _api_key: str = Depends(verify_api_key)):
     if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".md") or file.filename.lower().endswith(".txt")):
         raise HTTPException(status_code=400, detail="Formato não suportado. Envie .pdf, .md ou .txt.")
     

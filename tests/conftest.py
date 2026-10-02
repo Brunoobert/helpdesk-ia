@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault("API_AUTH_KEY", "test-key-for-ci")
+
 import pytest
 import time
 from sqlalchemy import create_engine

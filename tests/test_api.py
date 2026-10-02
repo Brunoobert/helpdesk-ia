@@ -1,8 +1,10 @@
+import os
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 from app.main import app
 
 client = TestClient(app)
+VALID_KEY = os.environ.get("API_AUTH_KEY", "test-key-for-ci")
 
 @patch("app.main.ingest_document")
 def test_ingest_endpoint(mock_ingest):
@@ -16,7 +18,7 @@ def test_ingest_endpoint(mock_ingest):
     fake_file_content = b"Conteudo ficticio para teste do RAG"
     files = {"file": ("manual_teste.txt", fake_file_content, "text/plain")}
     
-    response = client.post("/ingest", files=files)
+    response = client.post("/ingest", files=files, headers={"X-API-Key": VALID_KEY})
     
     assert response.status_code == 200, "A API deveria retornar status 200 OK"
     
