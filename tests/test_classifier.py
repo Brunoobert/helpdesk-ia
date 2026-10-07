@@ -16,6 +16,7 @@ from app.schemas import TicketInput, ClassificationResult
 from app.classifier import classify_ticket
 
 client = TestClient(app)
+VALID_KEY = os.environ.get("API_AUTH_KEY", "test-key-for-ci")
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ def post_classify(payload: dict, max_retries: int = 3):
     """POST /classify com retry em 503 (rate limit / indisponibilidade temporária)."""
     last = None
     for attempt in range(max_retries):
-        last = client.post("/classify", json=payload)
+        last = client.post("/classify", json=payload, headers={"X-API-Key": VALID_KEY})
         if last.status_code != 503:
             return last
         if attempt < max_retries - 1:
@@ -82,7 +83,7 @@ class TestAPIContract:
         """Response deve conter exatamente os campos definidos na spec."""
         response = client.post("/classify", json=make_ticket(
             "Usuário não consegue resetar a senha pelo portal."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         data = response.json()
         campos_obrigatorios = {
@@ -95,7 +96,7 @@ class TestAPIContract:
         """category deve ser um dos valores definidos na spec."""
         response = client.post("/classify", json=make_ticket(
             "Impressora do setor financeiro não imprime desde a troca do toner."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         from app.schemas import VALID_CATEGORIES
         categorias_validas = VALID_CATEGORIES
@@ -105,7 +106,7 @@ class TestAPIContract:
         """urgency deve ser Alta, Média ou Baixa."""
         response = client.post("/classify", json=make_ticket(
             "Email corporativo chegando com atraso de 2 horas."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         assert response.json()["urgency"] in {"Alta", "Média", "Baixa"}
 
@@ -113,7 +114,7 @@ class TestAPIContract:
         """confidence deve estar entre 0.0 e 1.0."""
         response = client.post("/classify", json=make_ticket(
             "Computador lento ao abrir o sistema ERP."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         confidence = response.json()["confidence"]
         assert 0.0 <= confidence <= 1.0
@@ -122,7 +123,7 @@ class TestAPIContract:
         """processing_ms deve ser um inteiro não negativo (0 com mock, >0 com LLM real)."""
         response = client.post("/classify", json=make_ticket(
             "Monitor piscando intermitentemente."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         assert response.json()["processing_ms"] >= 0
 
@@ -132,7 +133,7 @@ class TestAPIContract:
         ticket_id = "INC-2024-XYZ"
         response = client.post("/classify", json=make_ticket(
             "Sem acesso à internet no setor de RH.", ticket_id=ticket_id
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
         assert response.json()["ticket_id"] == ticket_id
 
@@ -141,26 +142,26 @@ class TestAPIContract:
         response = client.post("/classify", json=make_ticket(
             "Alerta automático: disco do servidor chegando a 95%.",
             source="webhook"
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
 
     def test_classify_rejeita_source_invalido(self):
         """Source fora do enum deve retornar 422."""
         response = client.post("/classify", json=make_ticket(
             "Qualquer chamado.", source="teams"
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 422
 
     def test_classify_rejeita_body_vazio(self):
         """Request sem body deve retornar 422."""
-        response = client.post("/classify", json={})
+        response = client.post("/classify", json={}, headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 422
 
     def test_classify_rejeita_text_ausente(self):
         """Campo text obrigatório ausente deve retornar 422."""
         response = client.post("/classify", json={
             "ticket_id": "001", "source": "manual"
-        })
+        }, headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 422
 
 
@@ -374,7 +375,7 @@ class TestResiliencia:
         mock_invoke.side_effect = Exception("API timeout")
         response = client.post("/classify", json=make_ticket(
             "Qualquer chamado de teste."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 503
 
     @patch("app.classifier._invoke_llm")
@@ -383,7 +384,7 @@ class TestResiliencia:
         mock_invoke.return_value = ("Desculpe, não entendi o chamado.", 20)  # LLM ignorou instrução
         response = client.post("/classify", json=make_ticket(
             "Qualquer chamado de teste."
-        ))
+        ), headers={"X-API-Key": VALID_KEY})
         # Com o fallback defensivo, a API não quebra e retorna 200 com encaminhamento humano
         assert response.status_code == 200
         data = response.json()
@@ -395,7 +396,7 @@ class TestResiliencia:
         """Chamado com texto muito longo deve ser processado ou falhar graciosamente."""
         mock_invoke.return_value = mock_llm_json(**DEFAULT_MOCK)
         texto_longo = "problema de rede " * 500  # ~9000 chars
-        response = client.post("/classify", json=make_ticket(texto_longo))
+        response = client.post("/classify", json=make_ticket(texto_longo), headers={"X-API-Key": VALID_KEY})
         assert response.status_code == 200
 
     def test_health_sempre_responde(self):

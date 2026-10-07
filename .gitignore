@@ -23,3 +23,4 @@ data/
 .qdrant/
 
 .vscode/
+temp_docs/

@@ -1,8 +1,8 @@
 # 📋 Spec — Help Desk IA com RAG, n8n e AWS
 
-> **Versão:** 1.7.0
-> **Status:** Etapa 4 Concluída | Planejamento da Etapa 4.1 (Excelência LLMOps & Evals)  
-> **Última atualização:** 18/09/2026
+> **Versão:** 1.7.1
+> **Status:** Etapa 4 Concluída | Em Andamento: Etapa 4.1 (E4-03, E4-06, E4-07 Concluídos)
+> **Última atualização:** 07/10/2026
 
 ---
 
@@ -164,11 +164,11 @@ Tarefas planejadas para a segunda etapa (RAG + base de conhecimento). **Não imp
 
 | ID | Tarefa | Prioridade | Status | Notas |
 |---|---|---|---|---|
-| E4-03 | **Versionamento & Auditoria Temporal no RAG** | Alta | ⏳ Pendente | `app/rag.py`: chunks com `is_active`, `version` e `created_at`. Pré-filtro no Qdrant HNSW (ADR-005) |
+| E4-03 | **Versionamento & Auditoria Temporal no RAG** | Alta | ✅ Concluído | `app/rag.py`: chunks com `is_active`, `version` e `created_at`. Pré-filtro no Qdrant HNSW (ADR-005) |
 | E4-04 | **Feedback Humano (Active Learning)** | Média | ⏳ Pendente | `POST /feedback`: atualiza `correct_classification` no PostgreSQL e registra score de acurácia no Langfuse |
 | E4-05 | **Golden Dataset & Evals com Pacing de Rate Limit** | Alta | ⏳ Pendente | `tests/golden_dataset.json` (20 casos) e `evals/run_evals.py` com delay entre chamadas para respeitar cotas TPM/RPM da Groq |
-| E4-06 | **Troca Dinâmica de Modelo (Model Switching)** | Média | ⏳ Pendente | Header opcional `X-LLM-Provider` ou campo `llm_provider` no payload para alternar modelos em tempo de execução sem alterar `.env` |
-| E4-07 | **Autenticação de Borda via API Key** | Média | ⏳ Pendente | `X-API-Key` nos endpoints operacionais do FastAPI e integração no nó HTTP do n8n (ADR-006) |
+| E4-06 | **Troca Dinâmica de Modelo (Model Switching)** | Média | ✅ Concluído | Header opcional `X-LLM-Provider` ou campo `llm_provider` no payload para alternar modelos em tempo de execução sem alterar `.env` |
+| E4-07 | **Autenticação de Borda via API Key** | Média | ✅ Concluído | `X-API-Key` nos endpoints operacionais do FastAPI e integração no nó HTTP do n8n (ADR-006) |
 
 ---
 
@@ -431,22 +431,37 @@ class TicketLog(BaseModel):
 
 ---
 
-## 7. Segurança
+## 7. Segurança & Hardening
 
-### Autenticação de Borda da API
-- Endpoints operacionais (`POST /classify`, `POST /ingest`) protegidos por header `X-API-Key` contra acesso não autorizado (ver ADR-006).
-- Chave configurada via `API_AUTH_KEY` e compartilhada de forma segura com clientes autorizados (ex: n8n).
+### 7.1 Autenticação de Borda (Implementada - E4-07 / ADR-006)
+- Endpoints operacionais (`POST /classify`, `POST /ingest`, `POST /feedback`) protegidos por header `X-API-Key` contra acesso não autorizado.
+- Endpoint `GET /health` público para monitoramento de probes/orquestradores sem credenciais.
+- Chave injetada via `API_AUTH_KEY` e compartilhada com o cliente n8n via variáveis de ambiente (`$env.API_AUTH_KEY`).
 
-### Fase local (Docker)
-- Chaves de API em `.env`, nunca no código
-- `.env` no `.gitignore`
-- Qdrant sem autenticação exposto apenas na rede interna do docker-compose
+### 7.2 Mitigações Imediatas de Código (Quick Wins Recomendados)
+Pequenas correções defensivas aplicáveis diretamente no código da aplicação com baixíssimo esforço e alto ganho de qualidade:
+1. **Prevenção de Timing Attacks (`secrets.compare_digest`):**
+   - Substituição de `api_key != expected_key` por `secrets.compare_digest(api_key, expected_key)` no `app/auth.py` para garantir comparação em tempo constante e evitar ataques de canal lateral (*side-channel timing attacks*).
+2. **Prevenção de Path Traversal no Upload (`os.path.basename`):**
+   - No `POST /ingest` (`app/main.py`), sanitizar `file.filename` usando `os.path.basename()` antes de salvar em `temp_docs/` para impedir que nomes contendo `../../` acessem ou sobrescrevam arquivos do sistema de arquivos.
+3. **Limite de Tamanho de Arquivo no Upload:**
+   - Validação de cabeçalho `Content-Length` ou leitura em chunks limitando a 10MB no `/ingest` para prevenir exaustão de disco (*Disk Exhaustion DoS*).
 
-### Fase AWS
-- Secrets no AWS Secrets Manager / Parameter Store
-- IAM com princípio do menor privilégio
-- Serviços internos em subnet privada (sem acesso direto da internet)
-- HTTPS obrigatório em todos os endpoints públicos via ALB ou CloudFront
+### 7.3 Backlog de Hardening para Produção & Publicação no GitHub (Etapa 5 / Deploy Cloud)
+Medidas estruturais planejadas para a fase de deploy e disponibilização pública do repositório:
+1. **Rate Limiting & Throttling (Proteção de Custos / Denial of Wallet):**
+   - Implementação de middleware de rate limit (ex: `slowapi` ou Redis token-bucket) limitando requisições por API Key/IP (ex: 30 req/min) para impedir estouro de cotas da Groq/Gemini ou custos inesperados.
+2. **Criptografia Obrigatória em Trânsito (HTTPS / TLS):**
+   - Obrigatoriedade de HTTPS em produção (via CloudFront / AWS ACM / NGINX reverse proxy) para evitar que o header `X-API-Key` trafegue em texto plano pela internet.
+3. **Isolamento Estrito de Rede e Portas no Docker:**
+   - Remoção do mapeamento público das portas do Qdrant (`6333`) e PostgreSQL (`5432`) no deploy de nuvem, mantendo o tráfego estritamente confinado à rede interna do Docker / VPC.
+4. **Checklist Pré-Publicação GitHub:**
+   - Garantir que `.env` permaneça no `.gitignore`.
+   - Manter `.env.example` apenas com placeholders documentados.
+   - Auditar histórico do git (`git log`) para assegurar que chaves reais de APIs pagas nunca tenham sido comitadas.
+5. **Mitigação de Riscos de IA (OWASP Top 10 for LLM):**
+   - **Prompt Injection (LLM01):** Tratamento defensivo mantido com parser JSON estrito e fallback automático para escalonamento humano no `classifier.py`.
+   - **Exfiltração de Dados / PII no RAG (LLM06):** Higienização de runbooks para remoção de senhas ou dados sensíveis antes da vetorização.
 
 ---
 
@@ -533,6 +548,7 @@ MAX_UPLOAD_SIZE_MB=10
 | 16/09/2026 | 1.5.0 | Finalização da Etapa 4 (MLOps): Resolução de segfault do Langfuse fixando imagem v2.36.0 (PostgreSQL-only, sem dependência de ClickHouse/Redis). Tratamento defensivo contra Prompt Injection e recusas de LLM no classifier.py com fallback automático para escalonamento humano. Correção no parsing de JSON com blocos de markdown embutidos. Validação end-to-end com n8n, Postman, FastAPI e Qdrant. |
 | 18/09/2026 | 1.6.0 | Adição formal de ADRs de Arquitetura: ADR-005 (Ciclo de Vida, Versionamento e Auditoria Temporal de Embeddings no RAG via Soft Invalidation com `is_active`), ADR-006 (Autenticação de Borda e Segurança de APIs via `X-API-Key`) e ADR-007 (Estratégia Híbrida de Deploy Cloud AWS com Custo Zero/Mínimo no Free Tier para Etapa 5). |
 | 18/09/2026 | 1.7.0 | Adição do Backlog da Etapa 4.1 (Excelência LLMOps): Endpoint de feedback humano (Active Learning), Evals automatizadas com pacing para respeitar rate limits (Groq TPM) e Model Switching dinâmico via headers/payload sem alteração de .env. |
+| 07/10/2026 | 1.7.1 | Atualização de status da Etapa 4.1 (E4-03, E4-06 e E4-07 concluídos). Inclusão da matriz de Hardening de Segurança (Seção 7): mitigações imediatas de código (timing attack e path traversal) e backlog de produção/nuvem para Etapa 5. |
 
 ---
 
