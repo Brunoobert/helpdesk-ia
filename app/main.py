@@ -19,6 +19,8 @@ load_dotenv()
 
 app = FastAPI(title="Help Desk IA")
 
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB (ADR-006 / Spec)
+
 
 @app.on_event("startup")
 def on_startup():
@@ -62,28 +64,48 @@ def classify(
 
 @app.post("/ingest")
 async def ingest(file: UploadFile = File(...), _api_key: str = Depends(verify_api_key)):
-    if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".md") or file.filename.lower().endswith(".txt")):
-        raise HTTPException(status_code=400, detail="Formato não suportado. Envie .pdf, .md ou .txt.")
-    
+    # Sanitizacao contra Path Traversal (pega apenas o nome base)
+    filename = os.path.basename(file.filename or "")
+    if not filename:
+        raise HTTPException(status_code=400, detail="Nome de arquivo invalido.")
+
+    if not (filename.lower().endswith(".pdf") or filename.lower().endswith(".md") or filename.lower().endswith(".txt")):
+        raise HTTPException(status_code=415, detail="Formato nao suportado. Envie .pdf, .md ou .txt.")
+
     temp_dir = Path("temp_docs")
     temp_dir.mkdir(exist_ok=True)
-    file_path = temp_dir / file.filename
-    
+    file_path = temp_dir / filename
+
+    file_too_large = False
     try:
-        # Salva o arquivo temporariamente
+        # Salva o arquivo em blocos validando tamanho maximo de 10MB
+        total_size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # Chama a função do RAG para ingerir o documento
+            while chunk := file.file.read(1024 * 1024):  # 1MB por bloco
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE_BYTES:
+                    file_too_large = True
+                    break
+                buffer.write(chunk)
+
+        # Garante que o arquivo no disco foi fechado antes de lancar a excecao
+        if file_too_large:
+            raise HTTPException(status_code=413, detail="Arquivo maior que 10MB.")
+
+        # Chama a funcao do RAG para ingerir o documento
         ingest_document(str(file_path))
-        
-        return {"message": f"Arquivo '{file.filename}' processado e salvo na base de conhecimento com sucesso."}
+
+        return {"message": f"Arquivo '{filename}' processado e salvo na base de conhecimento com sucesso."}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro durante a ingestão: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro durante a ingestao: {str(e)}")
     finally:
-        # Limpa o arquivo temporário
         if file_path.exists():
-            file_path.unlink()
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
 
 
 def _llm_api_status() -> str:

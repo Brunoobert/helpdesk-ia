@@ -1,4 +1,5 @@
 import os
+import secrets
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
@@ -21,7 +22,8 @@ def verify_api_key(api_key: str = Security(_api_key_header)) -> str:
             detail="API_AUTH_KEY nao configurada no servidor. Verifique o .env.",
         )
 
-    if not api_key or api_key != expected_key:
+    # Mitigacao de Timing Attack: comparacao em tempo constante
+    if not api_key or not secrets.compare_digest(api_key, expected_key):
         raise HTTPException(
             status_code=401,
             detail="X-API-Key ausente ou invalida.",
